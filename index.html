@@ -1,0 +1,442 @@
+<script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+          return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+            try {
+                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert sheet to JSON to filter blank rows
+                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                var filteredData = jsonData.filter(row => row.some(filledCell));
+
+                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+                var headerRowIndex = filteredData.findIndex((row, index) =>
+                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                );
+                // Fallback
+                if (headerRowIndex === -1 || headerRowIndex > 25) {
+                  headerRowIndex = 0;
+                }
+
+                // Convert filtered JSON back to CSV
+                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                return csv;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        }
+        return gk_fileData[filename] || "";
+        }
+        </script><!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>明日閱讀 - 家長入校共讀打卡</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px;
+      background-color: #f5f5f5;
+    }
+    h1, h2 {
+      text-align: center;
+      color: #333;
+    }
+    .form-container {
+      background-color: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      margin-bottom: 20px;
+    }
+    .form-group {
+      margin-bottom: 15px;
+    }
+    label {
+      display: block;
+      margin-bottom: 5px;
+      font-weight: bold;
+    }
+    input, select {
+      width: 100%;
+      padding: 8px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      box-sizing: border-box;
+    }
+    button {
+      background-color: #28a745;
+      color: white;
+      padding: 10px 20px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 16px;
+      margin-right: 10px;
+    }
+    button:hover {
+      background-color: #218838;
+    }
+    button.danger {
+      background-color: #dc3545;
+    }
+    button.danger:hover {
+      background-color: #c82333;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background-color: white;
+      border-radius: 8px;
+      overflow: hidden;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    th, td {
+      padding: 12px;
+      text-align: left;
+      border-bottom: 1px solid #ddd;
+    }
+    th {
+      background-color: #f8f9fa;
+    }
+    .error {
+      color: red;
+      text-align: center;
+      margin-bottom: 10px;
+    }
+    #adminSection, #adminContent {
+      display: none;
+    }
+    .alert {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background-color: #28a745;
+      color: white;
+      padding: 20px 40px;
+      border-radius: 8px;
+      box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+      z-index: 1000;
+      font-size: 24px;
+      font-weight: bold;
+      opacity: 0;
+      transition: opacity 0.3s ease-in-out;
+    }
+    .alert.show {
+      opacity: 1;
+    }
+    .alert.error {
+      background-color: #dc3545;
+    }
+  </style>
+</head>
+<body>
+  <h1>明日閱讀 - 家長入校共讀打卡</h1>
+  
+  <!-- 前台打卡表單 -->
+  <div class="form-container" id="checkinSection">
+    <form id="checkinForm">
+      <div class="form-group">
+        <label for="className">班級</label>
+        <select id="className" name="className" required>
+          <option value="" disabled selected>請選擇班級</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label for="parentName">家長姓名</label>
+        <input type="text" id="parentName" name="parentName" required>
+      </div>
+      <div class="form-group">
+        <label for="checkinDate">入班日期</label>
+        <input type="date" id="checkinDate" name="checkinDate" required>
+      </div>
+      <button type="submit">提交打卡</button>
+      <button type="button" id="showAdmin">進入管理介面</button>
+    </form>
+  </div>
+
+  <!-- 管理介面登入 -->
+  <div id="adminSection" class="form-container">
+    <form id="passwordForm">
+      <div class="form-group">
+        <label for="password">請輸入管理密碼</label>
+        <input type="password" id="password" name="password" required>
+      </div>
+      <button type="submit">登入管理介面</button>
+    </form>
+    <p id="errorMessage" class="error"></p>
+  </div>
+
+  <!-- 管理介面內容 -->
+  <div id="adminContent" class="form-container">
+    <h2>管理班級</h2>
+    <form id="classForm">
+      <div class="form-group">
+        <label for="newClass">新增/修改班級</label>
+        <input type="text" id="newClass" name="newClass" placeholder="輸入班級名稱（如：三年級A班）" required>
+      </div>
+      <button type="submit">新增班級</button>
+      <button type="button" id="updateClass">修改選中班級</button>
+    </form>
+
+    <h2>現有班級</h2>
+    <select id="classList" size="5" style="width: 100%; margin-bottom: 20px;">
+    </select>
+
+    <h2>更改管理密碼</h2>
+    <form id="changePasswordForm">
+      <div class="form-group">
+        <label for="newPassword">新密碼</label>
+        <input type="password" id="newPassword" name="newPassword" required>
+      </div>
+      <div class="form-group">
+        <label for="confirmPassword">確認新密碼</label>
+        <input type="password" id="confirmPassword" name="confirmPassword" required>
+      </div>
+      <button type="submit">更改密碼</button>
+    </form>
+
+    <h2>打卡記錄</h2>
+    <button id="exportData">匯出打卡資料 (CSV)</button>
+    <button id="clearData" class="danger">清除所有打卡資料</button>
+  </div>
+
+  <!-- 打卡記錄表格 -->
+  <h2>打卡記錄</h2>
+  <table id="recordTable">
+    <thead>
+      <tr>
+        <th>班級</th>
+        <th>家長姓名</th>
+        <th>入班日期</th>
+      </tr>
+    </thead>
+    <tbody id="recordBody"></tbody>
+  </table>
+
+  <script>
+    // 從 localStorage 載入密碼，預設為 admin123
+    let ADMIN_PASSWORD = localStorage.getItem('adminPassword') || "admin123";
+
+    // 獲取元素
+    const checkinForm = document.getElementById('checkinForm');
+    const passwordForm = document.getElementById('passwordForm');
+    const classForm = document.getElementById('classForm');
+    const changePasswordForm = document.getElementById('changePasswordForm');
+    const classNameSelect = document.getElementById('className');
+    const classList = document.getElementById('classList');
+    const newClassInput = document.getElementById('newClass');
+    const updateClassButton = document.getElementById('updateClass');
+    const recordBody = document.getElementById('recordBody');
+    const exportButton = document.getElementById('exportData');
+    const clearDataButton = document.getElementById('clearData');
+    const showAdminButton = document.getElementById('showAdmin');
+    const checkinSection = document.getElementById('checkinSection');
+    const adminSection = document.getElementById('adminSection');
+    const adminContent = document.getElementById('adminContent');
+    const errorMessage = document.getElementById('errorMessage');
+
+    // 載入本地存儲中的數據
+    let classes = JSON.parse(localStorage.getItem('classes')) || [
+      "一年級A班", "一年級B班", "二年級A班", "二年級B班"
+    ];
+    let records = JSON.parse(localStorage.getItem('readingRecords')) || [];
+
+    // 顯示班級選項（前台下拉選單）
+    function displayClassOptions() {
+      classNameSelect.innerHTML = '<option value="" disabled selected>請選擇班級</option>';
+      classes.forEach(cls => {
+        const option = document.createElement('option');
+        option.value = cls;
+        option.textContent = cls;
+        classNameSelect.appendChild(option);
+      });
+    }
+
+    // 顯示班級列表（管理介面）
+    function displayClasses() {
+      classList.innerHTML = '';
+      classes.forEach(cls => {
+        const option = document.createElement('option');
+        option.value = cls;
+        option.textContent = cls;
+        classList.appendChild(option);
+      });
+    }
+
+    // 顯示打卡記錄
+    function displayRecords() {
+      recordBody.innerHTML = '';
+      records.forEach(record => {
+        const row = document.createElement('tr');
+        row.innerHTML = `
+          <td>${record.className}</td>
+          <td>${record.name}</td>
+          <td>${record.date}</td>
+        `;
+        recordBody.appendChild(row);
+      });
+    }
+
+    // 顯示彈出提示（置中，放大）
+    function showAlert(message, isError = false) {
+      const alertDiv = document.createElement('div');
+      alertDiv.className = `alert ${isError ? 'error' : ''}`;
+      alertDiv.textContent = message;
+      document.body.appendChild(alertDiv);
+      setTimeout(() => {
+        alertDiv.classList.add('show');
+        setTimeout(() => {
+          alertDiv.classList.remove('show');
+          setTimeout(() => {
+            document.body.removeChild(alertDiv);
+          }, 300);
+        }, 2000);
+      }, 100);
+    }
+
+    // 前台打卡提交
+    checkinForm.addEventListener('submit', function(event) {
+      event.preventDefault();
+      const className = document.getElementById('className').value;
+      const name = document.getElementById('parentName').value;
+      const date = document.getElementById('checkinDate').value;
+
+      if (className && name && date) {
+        records.push({ className, name, date });
+        localStorage.setItem('readingRecords', JSON.stringify(records));
+        displayRecords();
+        checkinForm.reset();
+        showAlert('已打卡');
+      } else {
+        showAlert('請填寫所有欄位！', true);
+      }
+    });
+
+    // 顯示管理介面登入表單
+    showAdminButton.addEventListener('click', function() {
+      adminSection.style.display = 'block';
+      checkinSection.style.display = 'none';
+      adminContent.style.display = 'none';
+      errorMessage.textContent = '';
+      document.getElementById('password').value = '';
+    });
+
+    // 密碼驗證
+    passwordForm.addEventListener('submit', function(event) {
+      event.preventDefault();
+      const password = document.getElementById('password').value;
+      if (password === ADMIN_PASSWORD) {
+        adminSection.style.display = 'none';
+        adminContent.style.display = 'block';
+        checkinSection.style.display = 'none';
+        displayClasses();
+      } else {
+        showAlert('密碼錯誤，請重試！', true);
+      }
+    });
+
+    // 新增班級
+    classForm.addEventListener('submit', function(event) {
+      event.preventDefault();
+      const newClass = newClassInput.value.trim();
+      if (newClass && !classes.includes(newClass)) {
+        classes.push(newClass);
+        localStorage.setItem('classes', JSON.stringify(classes));
+        displayClasses();
+        displayClassOptions();
+        newClassInput.value = '';
+        showAlert('班級已新增');
+      } else {
+        showAlert('班級已存在或輸入無效！', true);
+      }
+    });
+
+    // 修改班級
+    updateClassButton.addEventListener('click', function() {
+      const selectedClass = classList.value;
+      const newClassName = newClassInput.value.trim();
+      if (selectedClass && newClassName && !classes.includes(newClassName)) {
+        const index = classes.indexOf(selectedClass);
+        classes[index] = newClassName;
+        localStorage.setItem('classes', JSON.stringify(classes));
+        records = records.map(record => {
+          if (record.className === selectedClass) {
+            return { ...record, className: newClassName };
+          }
+          return record;
+        });
+        localStorage.setItem('readingRecords', JSON.stringify(records));
+        displayClasses();
+        displayClassOptions();
+        displayRecords();
+        newClassInput.value = '';
+        showAlert('班級已修改');
+      } else {
+        showAlert('請選擇一個班級並輸入有效的新班級名稱！', true);
+      }
+    });
+
+    // 更改密碼
+    changePasswordForm.addEventListener('submit', function(event) {
+      event.preventDefault();
+      const newPassword = document.getElementById('newPassword').value;
+      const confirmPassword = document.getElementById('confirmPassword').value;
+      if (newPassword && newPassword === confirmPassword) {
+        ADMIN_PASSWORD = newPassword;
+        localStorage.setItem('adminPassword', newPassword);
+        document.getElementById('newPassword').value = '';
+        document.getElementById('confirmPassword').value = '';
+        showAlert('密碼已更改');
+      } else {
+        showAlert('新密碼不匹配或無效！', true);
+      }
+    });
+
+    // 清除打卡資料
+    clearDataButton.addEventListener('click', function() {
+      if (confirm('確定要清除所有打卡資料嗎？此操作無法恢復！')) {
+        records = [];
+        localStorage.setItem('readingRecords', JSON.stringify(records));
+        displayRecords();
+        showAlert('資料已清除');
+      }
+    });
+
+    // 匯出打卡資料為CSV
+    exportButton.addEventListener('click', function() {
+      let csvContent = "班級,家長姓名,入班日期\n";
+      records.forEach(record => {
+        csvContent += `${record.className},${record.name},${record.date}\n`;
+      });
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.setAttribute('href', url);
+      link.setAttribute('download', 'reading_checkin_records.csv');
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      showAlert('資料已匯出');
+    });
+
+    // 頁面加載時初始化
+    displayClassOptions();
+    displayRecords();
+  </script>
+</body>
+</html>
